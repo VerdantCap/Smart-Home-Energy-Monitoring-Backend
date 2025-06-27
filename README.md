@@ -33,7 +33,7 @@ This service consolidates three previously separate microservices into a single,
 - Batch data processing
 - Historical data analysis
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Docker and Docker Compose
@@ -111,7 +111,7 @@ This service consolidates three previously separate microservices into a single,
 
    poetry env activate
 
-   poetry install
+   poetry install --no-root
    ```
 
 3. **Set up local database and Redis**
@@ -224,7 +224,7 @@ poetry run python scripts/simulate-telemetry.py
 
 Use the interactive API documentation at http://localhost:8000/docs to test endpoints.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Backend**: FastAPI, Python 3.11+
 - **Database**: PostgreSQL 15
