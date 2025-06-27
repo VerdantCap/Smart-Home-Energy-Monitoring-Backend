@@ -7,7 +7,7 @@ from app.core.database import Base
 
 
 class Telemetry(Base):
-    """Telemetry model for device energy data"""
+    """Telemetry model for device power consumption data"""
     
     __tablename__ = "telemetry"
     
@@ -15,11 +15,11 @@ class Telemetry(Base):
     device_id = Column(String(255), nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     timestamp = Column(DateTime(timezone=True), nullable=False, index=True)
-    energy_watts = Column(Numeric(10, 3), nullable=False)
+    energy_watts = Column(Numeric(10, 3), nullable=False)  # Note: Despite the name, this stores instantaneous power in watts
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     def __repr__(self) -> str:
-        return f"<Telemetry(device_id={self.device_id}, timestamp={self.timestamp}, energy_watts={self.energy_watts})>"
+        return f"<Telemetry(device_id={self.device_id}, timestamp={self.timestamp}, power_watts={self.energy_watts})>"
     
     def to_dict(self) -> dict:
         """Convert telemetry to dictionary"""

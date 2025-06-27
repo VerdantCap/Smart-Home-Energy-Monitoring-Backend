@@ -16,35 +16,19 @@ RUN apt-get update \
         build-essential \
         curl \
         postgresql-client \
+        netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Poetry
 RUN pip install poetry
 
-# Copy poetry files
-COPY pyproject.toml poetry.lock* ./
-
-# Configure poetry and install dependencies
-RUN poetry config virtualenvs.in-project true \
-    && poetry install --no-dev --no-root
+RUN poetry config virtualenvs.in-project true
 
 # Copy application code
 COPY . .
 
 # Install the application
-RUN poetry install --no-dev
-
-# Create non-root user
-RUN adduser --disabled-password --gecos '' appuser \
-    && chown -R appuser:appuser /app
-USER appuser
+RUN poetry install --no-root
 
 # Expose port
 EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
-
-# Run the application
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

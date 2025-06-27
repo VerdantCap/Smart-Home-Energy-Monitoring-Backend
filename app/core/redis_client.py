@@ -182,6 +182,13 @@ class ConversationCache:
             from datetime import datetime
             now = datetime.utcnow().isoformat()
             
+            # Truncate content if it exceeds the maximum length (8000 chars from schema)
+            max_content_length = 7900  # Leave some buffer for safety
+            if len(content) > max_content_length:
+                truncated_content = content[:max_content_length] + "... [Message truncated due to length]"
+                logger.warning(f"Message truncated for user {user_id}: original length {len(content)}, truncated to {len(truncated_content)}")
+                content = truncated_content
+            
             # Add new message
             conversation["messages"].append({
                 "role": role,

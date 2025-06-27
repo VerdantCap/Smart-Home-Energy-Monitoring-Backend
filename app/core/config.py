@@ -13,26 +13,35 @@ class Settings(BaseSettings):
     PORT: int = 8000
     
     # Database settings
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/smart_home_energy"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@postgres:5432/smart_home_energy"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     
+    # Individual database components (for Docker)
+    POSTGRES_DB: str = "smart_home_energy"
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "password"
+    POSTGRES_HOST: str = "postgres"
+    POSTGRES_PORT: int = 5432
+    
     # JWT settings
-    JWT_SECRET_KEY: str = "smart-home"
+    JWT_SECRET_KEY: str = "your-super-secret-jwt-key-here-change-this-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 1440  # 24 hours
     
     # Redis settings
-    REDIS_URL: str = "redis://localhost:6379"
+    REDIS_URL: str = "redis://redis:6379"
     REDIS_PASSWORD: Optional[str] = None
     REDIS_DB: int = 0
+    REDIS_HOST: str = "redis"
+    REDIS_PORT: int = 6379
     
     # Security settings
     ALLOWED_HOSTS: List[str] = ["*"]
     BCRYPT_ROUNDS: int = 12
     
     # Rate limiting
-    RATE_LIMIT_MAX_REQUESTS: int = 100000
+    RATE_LIMIT_MAX_REQUESTS: int = 1000
     RATE_LIMIT_WINDOW_MS: int = 100
     RATE_LIMIT_WINDOW: int = 3600
     
@@ -41,7 +50,7 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     
     # OpenAI settings (for AI service functionality)
-    OPENAI_API_KEY: str = "your open ai key"
+    OPENAI_API_KEY: str = "your-openai-api-key-here"
     OPENAI_MODEL: str = "gpt-3.5-turbo"
     OPENAI_TEMPERATURE: float = 0.7
     

@@ -98,8 +98,8 @@ def verify_token(token: str) -> Tuple[Optional[TokenData], Optional[str]]:
         logger.warning(f"JWT verification failed: {e}")
         return None, None
     except Exception as e:
-        logger.error(f"Refresh token verification error: {e}")
-        return None
+        logger.error(f"Token verification error: {e}")
+        return None, None
 
 
 def create_password_reset_token(email: str) -> str:

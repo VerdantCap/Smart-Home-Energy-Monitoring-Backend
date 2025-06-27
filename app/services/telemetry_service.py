@@ -140,7 +140,7 @@ class TelemetryService:
                 func.min(Telemetry.energy_watts).label('min_energy_watts'),
                 func.max(Telemetry.energy_watts).label('max_energy_watts'),
                 func.count(Telemetry.id).label('sample_count'),
-                func.sum(Telemetry.energy_watts / 60.0).label('total_energy_wh')  # Assuming 1-minute intervals
+                func.sum(Telemetry.energy_watts).label('total_energy_wh')  # Values are already scaled for 30-second intervals in simulation
             ).where(
                 and_(
                     Telemetry.user_id == user.id,
@@ -201,7 +201,7 @@ class TelemetryService:
             overall_stmt = select(
                 func.avg(Telemetry.energy_watts).label('avg_energy_watts'),
                 func.max(Telemetry.energy_watts).label('peak_energy_watts'),
-                func.sum(Telemetry.energy_watts / 60.0).label('total_energy_wh')
+                func.sum(Telemetry.energy_watts).label('total_energy_wh')  # Values are already scaled for 30-second intervals in simulation
             ).where(
                 and_(
                     Telemetry.user_id == user.id,
@@ -261,8 +261,13 @@ class TelemetryService:
             cached_metrics = await redis_service.get(cache_key)
             
             if cached_metrics:
-                logger.info(f"Returning cached real-time metrics for user {user.id}")
-                return RealTimeMetrics.model_validate_json(cached_metrics)
+                try:
+                    logger.info(f"Returning cached real-time metrics for user {user.id}")
+                    return RealTimeMetrics.model_validate_json(cached_metrics)
+                except Exception as cache_error:
+                    logger.warning(f"Failed to validate cached metrics for user {user.id}: {cache_error}")
+                    # Clear invalid cache and continue to recalculate
+                    await redis_service.delete(cache_key)
             
             # Calculate from recent data (last 5 minutes)
             recent_time = datetime.utcnow() - timedelta(minutes=5)
@@ -311,14 +316,23 @@ class TelemetryService:
                 power_value = power_result.scalar_one_or_none()
                 
                 if power_value is not None:
-                    # Convert Decimal to float to avoid type errors
-                    power_float = float(power_value)
-                    device_powers.append(power_float)
-                    total_power += power_float
-                    
-                    if power_float > max_power:
-                        max_power = power_float
-                        max_device = device_row.device_id
+                    try:
+                        # Convert Decimal to float to avoid type errors
+                        power_float = float(power_value)
+                        # Validate power value is reasonable (adjusted for 30-second scaled values)
+                        if 0 <= power_float <= 50000:  # 0-50kW range (includes small scaled values)
+                            device_powers.append(power_float)
+                            total_power += power_float
+                            
+                            if power_float > max_power:
+                                max_power = power_float
+                                max_device = device_row.device_id
+                            
+                            logger.debug(f"Device {device_row.device_id}: {power_float}W")
+                        else:
+                            logger.warning(f"Invalid power value {power_float}W for device {device_row.device_id}")
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"Failed to convert power value for device {device_row.device_id}: {e}")
             
             active_devices = len(device_powers)
             avg_power = total_power / active_devices if active_devices > 0 else 0.0
@@ -398,6 +412,89 @@ class TelemetryService:
             
         except Exception as e:
             logger.error(f"Failed to update real-time metrics: {e}")
+    
+    async def clear_realtime_metrics_cache(self, user: AuthUser) -> None:
+        """Clear real-time metrics cache for a user"""
+        try:
+            cache_key = f"realtime_metrics:{user.id}"
+            await redis_service.delete(cache_key)
+            logger.info(f"Cleared real-time metrics cache for user {user.id}")
+        except Exception as e:
+            logger.error(f"Failed to clear real-time metrics cache: {e}")
+    
+    async def validate_metrics_consistency(self, user: AuthUser) -> Dict[str, Any]:
+        """Validate consistency between real-time metrics and energy consumption data"""
+        try:
+            # Get real-time metrics
+            realtime = await self.get_real_time_metrics(user)
+            
+            # Get recent energy consumption (last hour for comparison)
+            end_time = datetime.utcnow()
+            start_time = end_time - timedelta(hours=1)
+            energy_summary = await self.get_energy_consumption_summary(start_time, end_time, user)
+            
+            if not realtime or not energy_summary:
+                return {"status": "insufficient_data", "message": "Not enough data for validation"}
+            
+            validation_results = {
+                "timestamp": datetime.utcnow(),
+                "realtime_data": {
+                    "active_devices": realtime.active_devices,
+                    "total_current_power": realtime.total_current_power,
+                    "average_power_per_device": realtime.average_power_per_device,
+                    "highest_consumption": realtime.highest_consumption
+                },
+                "energy_data": {
+                    "total_devices": energy_summary.total_devices,
+                    "avg_energy_watts": energy_summary.avg_energy_watts,
+                    "peak_energy_watts": energy_summary.peak_energy_watts,
+                    "total_energy_wh": energy_summary.total_energy_wh
+                },
+                "consistency_checks": {}
+            }
+            
+            # Check 1: Active devices should not exceed total devices
+            validation_results["consistency_checks"]["device_count_valid"] = (
+                realtime.active_devices <= energy_summary.total_devices
+            )
+            
+            # Check 2: Current highest consumption should be reasonable compared to historical peak
+            if realtime.highest_consumption and energy_summary.peak_energy_watts:
+                peak_ratio = realtime.highest_consumption / energy_summary.peak_energy_watts
+                validation_results["consistency_checks"]["peak_power_reasonable"] = (
+                    0.1 <= peak_ratio <= 2.0  # Current should be within 10%-200% of historical peak
+                )
+                validation_results["consistency_checks"]["peak_power_ratio"] = peak_ratio
+            
+            # Check 3: Average power relationship (allowing for variation)
+            if realtime.active_devices > 0 and energy_summary.avg_energy_watts > 0:
+                expected_total = energy_summary.avg_energy_watts * realtime.active_devices
+                actual_total = realtime.total_current_power
+                if expected_total > 0:
+                    power_ratio = actual_total / expected_total
+                    validation_results["consistency_checks"]["power_average_reasonable"] = (
+                        0.2 <= power_ratio <= 5.0  # Allow significant variation due to time differences
+                    )
+                    validation_results["consistency_checks"]["power_ratio"] = power_ratio
+            
+            # Check 4: Energy accumulation makes sense
+            if energy_summary.total_energy_wh > 0 and energy_summary.avg_energy_watts > 0:
+                # For 1 hour period with 30-second intervals: expected ~120 samples
+                expected_samples = 120  # 1 hour = 120 thirty-second intervals
+                expected_energy = energy_summary.avg_energy_watts * expected_samples  # Values already scaled in simulation
+                actual_energy = energy_summary.total_energy_wh
+                if expected_energy > 0:
+                    energy_ratio = actual_energy / expected_energy
+                    validation_results["consistency_checks"]["energy_calculation_consistent"] = (
+                        0.8 <= energy_ratio <= 1.2  # Should be very close
+                    )
+                    validation_results["consistency_checks"]["energy_ratio"] = energy_ratio
+            
+            return validation_results
+            
+        except Exception as e:
+            logger.error(f"Failed to validate metrics consistency: {e}")
+            return {"status": "error", "message": str(e)}
 
 
 def get_telemetry_service(db: AsyncSession) -> TelemetryService:

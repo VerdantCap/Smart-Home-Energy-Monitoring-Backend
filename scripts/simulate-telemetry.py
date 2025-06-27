@@ -2,8 +2,8 @@
 """
 Telemetry Data Simulation Script for Smart Home Energy Monitoring
 
-This script generates 24 hours of one-minute interval telemetry data for 5 devices
-and sends it to the telemetry service API.
+This script generates configurable telemetry data with 30-second intervals
+and realistic power consumption values for smart home devices.
 """
 
 import requests
@@ -13,8 +13,10 @@ import uuid
 import json
 import argparse
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
+from dataclasses import dataclass
+from enum import Enum
 
 # Configure logging
 logging.basicConfig(
@@ -24,8 +26,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-BASE_URL = "http://localhost:8000/api/v1/telemetry"
-AUTH_URL = "http://localhost:8000/api/v1/auth"
+BASE_URL = "http://backend:8000/api/v1/telemetry"
+AUTH_URL = "http://backend:8000/api/v1/auth"
 
 # Device configurations with realistic power consumption patterns
 DEVICE_CONFIGS = {
@@ -154,6 +156,10 @@ class TelemetrySimulator:
         variation = config["variation"]
         hour = timestamp.hour
         minute = timestamp.minute
+        second = timestamp.second
+        
+        # Calculate precise time position including seconds for 30-second intervals
+        time_position = hour + (minute / 60.0) + (second / 3600.0)
         
         # Start with base power
         power = base_power
@@ -161,7 +167,7 @@ class TelemetrySimulator:
         # Apply device-specific logic
         if device_id == "fridge-001":
             # Refrigerator cycles on/off
-            cycle_position = (hour % config["cycle_hours"]) + (minute / 60)
+            cycle_position = time_position % config["cycle_hours"]
             if cycle_position < config["cycle_duration"]:
                 power *= 1.3  # Compressor running
             else:
@@ -175,7 +181,7 @@ class TelemetrySimulator:
                 power *= 0.3  # Night/early morning
             
             # Cycling behavior
-            cycle_position = (hour % config["cycle_hours"]) + (minute / 60)
+            cycle_position = time_position % config["cycle_hours"]
             if cycle_position < config["cycle_duration"]:
                 power *= 1.1
             else:
@@ -183,10 +189,10 @@ class TelemetrySimulator:
                 
         elif device_id == "washer-001":
             # Washing machine runs in cycles
-            cycle_position = (hour % config["cycle_hours"]) + (minute / 60)
+            cycle_position = time_position % config["cycle_hours"]
             if cycle_position < config["cycle_duration"]:
-                # Running a wash cycle
-                cycle_phase = (minute % 60) / 60
+                # Running a wash cycle - use more precise timing
+                cycle_phase = (cycle_position % 1.0)  # Position within the 1-hour cycle
                 if cycle_phase < 0.2:  # Fill phase
                     power *= 0.3
                 elif cycle_phase < 0.6:  # Wash phase
@@ -216,16 +222,21 @@ class TelemetrySimulator:
         # Add some random variation
         power += random.uniform(-variation * 0.2, variation * 0.2)
         
+        # Since we're sending data every 30 seconds instead of 1 hour,
+        # we need to scale down the power values to represent 30-second consumption
+        # Original values were designed for 1-hour intervals
+        power = power * (30.0 / 3600.0)  # Scale from 1-hour to 30-second values
+        
         # Ensure power is not negative
-        return max(0, round(power, 2))
+        return max(0, round(power, 4))  # More precision for smaller values
     
-    def send_telemetry(self, device_id: str, timestamp: datetime, energy_watts: float) -> bool:
+    def send_telemetry(self, device_id: str, timestamp: datetime, power_watts: float) -> bool:
         """Send telemetry data to the API"""
         try:
             payload = {
                 "device_id": device_id,
                 "timestamp": timestamp.isoformat() + "Z",
-                "energy_watts": energy_watts
+                "energy_watts": power_watts  # Note: API field name is 'energy_watts' but contains power values
             }
             
             response = self.session.post(self.base_url, json=payload)
@@ -246,7 +257,7 @@ class TelemetrySimulator:
             start_time = datetime.utcnow().replace( second=0, microsecond=0)
         
         devices = list(DEVICE_CONFIGS.keys())
-        total_points = 24 * 60 * len(devices)  # 24 hours * 60 minutes * 5 devices
+        total_points = 24 * 60 * 2 * len(devices)  # 24 hours * 60 minutes * 2 (30-second intervals) * 5 devices
         successful_sends = 0
         failed_sends = 0
         
@@ -256,15 +267,15 @@ class TelemetrySimulator:
         
         start_simulation = time.time()
         
-        # Generate data for each minute of 24 hours
-        for minute_offset in range(24 * 60):  # 1440 minutes in 24 hours
-            timestamp = start_time + timedelta(minutes=minute_offset)
+        # Generate data for each 30-second interval of 24 hours
+        for interval_offset in range(24 * 60 * 2):  # 2880 thirty-second intervals in 24 hours
+            timestamp = start_time + timedelta(seconds=interval_offset * 30)
             
             # Generate data for each device
             for device_id in devices:
-                energy_watts = self.calculate_device_power(device_id, timestamp)
+                power_watts = self.calculate_device_power(device_id, timestamp)
                 
-                if self.send_telemetry(device_id, timestamp, energy_watts):
+                if self.send_telemetry(device_id, timestamp, power_watts):
                     successful_sends += 1
                 else:
                     failed_sends += 1
@@ -273,9 +284,9 @@ class TelemetrySimulator:
                 if delay > 0:
                     time.sleep(delay)
             
-            # Progress update every hour
-            if (minute_offset + 1) % 60 == 0:
-                hours_completed = (minute_offset + 1) // 60
+            # Progress update every hour (120 intervals = 1 hour)
+            if (interval_offset + 1) % 120 == 0:
+                hours_completed = (interval_offset + 1) // 120
                 logger.info(f"Completed {hours_completed}/24 hours - "
                           f"Success: {successful_sends}, Failed: {failed_sends}")
         
@@ -302,7 +313,7 @@ def main():
     parser = argparse.ArgumentParser(description="Smart Home Telemetry Simulator")
     parser.add_argument("--base-url", default=BASE_URL, help="Telemetry service base URL")
     parser.add_argument("--auth-url", default=AUTH_URL, help="Auth service base URL")
-    parser.add_argument("--email", default="tadekdev@gmail.com", help="User email for authentication")
+    parser.add_argument("--email", default="defe.florian@gmail.com", help="User email for authentication")
     parser.add_argument("--password", default="M@ther114", help="User password")
     parser.add_argument("--delay", type=float, default=5, help="Delay between requests (seconds)")
     parser.add_argument("--start-time", help="Start time (ISO format, defaults to today midnight)")

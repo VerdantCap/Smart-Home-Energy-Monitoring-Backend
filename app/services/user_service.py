@@ -87,6 +87,9 @@ class UserService:
             if not verify_password(password, user.password_hash):
                 return None
             
+            # Clear any existing token blacklist for this user upon successful login
+            await self.clear_user_token_blacklist(user.id)
+            
             logger.info(f"User authenticated successfully: {email}")
             return user
             
@@ -231,6 +234,17 @@ class UserService:
             return True
         except Exception as e:
             logger.error(f"Token revocation failed for user {user_id}: {e}")
+            return False
+    
+    async def clear_user_token_blacklist(self, user_id: uuid.UUID) -> bool:
+        """Clear token blacklist for a user upon successful login"""
+        try:
+            blacklist_key = f"blacklist:token:{user_id}"
+            await redis_service.delete(blacklist_key)
+            logger.info(f"Token blacklist cleared for user: {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear token blacklist for user {user_id}: {e}")
             return False
     
     async def is_email_available(self, email: str, exclude_user_id: Optional[uuid.UUID] = None) -> bool:

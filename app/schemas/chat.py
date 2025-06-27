@@ -7,7 +7,7 @@ import uuid
 class ChatMessage(BaseModel):
     """Schema for a chat message"""
     role: str = Field(..., pattern="^(user|assistant|system)$")
-    content: str = Field(..., min_length=1, max_length=2000)
+    content: str = Field(..., min_length=1, max_length=8000)  # Increased limit for AI responses
     timestamp: Optional[datetime] = None
 
 

@@ -8,7 +8,15 @@ class TelemetryBase(BaseModel):
     """Base telemetry schema"""
     device_id: str = Field(..., min_length=1, max_length=255)
     timestamp: datetime
-    energy_watts: float = Field(..., ge=0, description="Energy consumption in watts")
+    energy_watts: float = Field(..., ge=0, le=50000, description="Instantaneous power consumption in watts (0-50kW max)")
+    
+    @validator('energy_watts')
+    def validate_energy_watts(cls, v):
+        if v < 0:
+            raise ValueError('Power consumption cannot be negative')
+        if v > 50000:  # 50kW maximum - reasonable for home devices
+            raise ValueError('Power consumption exceeds maximum allowed value (50kW)')
+        return round(v, 3)  # Round to 3 decimal places for consistency
 
 
 class TelemetryCreate(TelemetryBase):

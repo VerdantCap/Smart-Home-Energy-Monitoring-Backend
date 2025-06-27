@@ -1,4 +1,4 @@
-# Smart Home Unified Service
+# Smart Home Energy Monitoring Backend
 
 A unified FastAPI service that combines Authentication, AI, and Telemetry functionality for the Smart Home Energy Monitoring system.
 
@@ -33,6 +33,109 @@ This service consolidates three previously separate microservices into a single,
 - Batch data processing
 - Historical data analysis
 
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker and Docker Compose
+- Python 3.11+ (for local development)
+- PostgreSQL 15+ (if running locally)
+- Redis 7+ (if running locally)
+
+### Using Docker (Recommended)
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd Smart-Home-Energy-Monitoring-Backend
+   ```
+
+2. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` file with your configuration:
+   ```bash
+   # Database Configuration
+   POSTGRES_DB=smart_home_energy
+   POSTGRES_USER=postgres
+   POSTGRES_PASSWORD=your_secure_password_here
+   DATABASE_URL=postgresql+asyncpg://postgres:your_secure_password_here@postgres:5432/smart_home_energy
+
+   # JWT Configuration
+   JWT_SECRET_KEY=your-super-secure-jwt-secret-key-here
+   JWT_EXPIRE_MINUTES=1440
+
+   # OpenAI Configuration
+   OPENAI_API_KEY=your-openai-api-key-here
+
+   # Application Settings
+   DEBUG=false
+   PORT=8000
+   LOG_LEVEL=INFO
+
+   # Redis Configuration
+   REDIS_URL=redis://redis:6379
+
+   # Rate Limiting
+   RATE_LIMIT_WINDOW_MS=100
+   RATE_LIMIT_MAX_REQUESTS=1000
+
+   # Security
+   ALLOWED_HOSTS=["*"]
+   ```
+
+3. **Start all services**
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Verify services are running**
+   ```bash
+   docker-compose ps
+   ```
+
+5. **Access the API**
+   - API Documentation: http://localhost:8000/docs
+   - Health Check: http://localhost:8000/api/health
+
+### Local Development Setup
+
+1. **Install Poetry** (if not already installed)
+   ```bash
+   pip install poetry 
+   ```
+
+2. **Install dependencies**
+   ```bash
+
+   poetry env activate
+
+   poetry install
+   ```
+
+3. **Set up local database and Redis**
+   ```bash
+   # Start only database and Redis services
+   docker-compose up -d postgres redis
+   ```
+
+4. **Update .env for local development**
+   ```bash
+   DATABASE_URL=postgresql+asyncpg://postgres:your_password@localhost:5432/smart_home_energy
+   REDIS_URL=redis://localhost:6379
+   ```
+
+5. **Run database migrations**
+   ```bash
+   poetry run alembic upgrade head
+   ```
+
+6. **Start the development server**
+   ```bash
+   poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
 ## API Endpoints
 
 ### Authentication Endpoints
@@ -65,72 +168,10 @@ This service consolidates three previously separate microservices into a single,
 - `GET /api/chat/health` - AI module health check
 - `GET /api/telemetry/health` - Telemetry module health check
 
-## Environment Variables
-
-```bash
-# Database
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/smart_home_energy
-
-# JWT
-JWT_SECRET_KEY=your-super-secret-jwt-key
-JWT_EXPIRE_MINUTES=1440
-
-# Redis
-REDIS_URL=redis://localhost:6379
-
-# OpenAI (for AI functionality)
-OPENAI_API_KEY=your-openai-api-key-here
-
-# Service Configuration
-PORT=8000
-DEBUG=false
-ALLOWED_HOSTS=["*"]
-```
-
-## Installation
-
-### Using Docker (Recommended)
-
-1. Build and run with docker-compose:
-```bash
-docker-compose up --build
-```
-
-### Local Development
-
-1. Install dependencies:
-```bash
-poetry install
-```
-
-2. Set up environment variables:
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
-
-3. Run the service:
-```bash
-poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-## Dependencies
-
-- **FastAPI**: Web framework
-- **SQLAlchemy**: Database ORM
-- **PostgreSQL**: Database
-- **Redis**: Caching and session storage
-- **OpenAI**: AI functionality
-- **JWT**: Authentication tokens
-- **Pydantic**: Data validation
-- **Uvicorn**: ASGI server
-
 ## Architecture
 
-The unified service maintains a modular architecture:
-
 ```
-backend/
+Smart-Home-Energy-Monitoring-Backend/
 ├── app/
 │   ├── api/v1/endpoints/
 │   │   ├── auth.py          # Authentication endpoints
@@ -141,39 +182,57 @@ backend/
 │   │   ├── database.py      # Database connection
 │   │   ├── deps.py          # Dependencies and auth
 │   │   ├── redis_client.py  # Redis client
-│   │   └── security.py      # Security utilities
+│   │   ├── security.py      # Security utilities
+│   │   └── logging.py       # Logging configuration
 │   ├── models/              # Database models
+│   │   ├── user.py
+│   │   ├── device.py
+│   │   └── telemetry.py
 │   ├── schemas/             # Pydantic schemas
+│   │   ├── user.py
+│   │   ├── chat.py
+│   │   └── telemetry.py
 │   ├── services/            # Business logic
+│   │   ├── user_service.py
+│   │   ├── ai_service.py
+│   │   └── telemetry_service.py
 │   └── main.py              # Application entry point
-├── Dockerfile
-└── pyproject.toml
+├── alembic/                 # Database migrations
+├── scripts/                 # Utility scripts
+│   └── simulate-telemetry.py
+├── docker-compose.yml       # Docker services
+├── Dockerfile              # Container definition
+├── pyproject.toml          # Python dependencies
+└── .env.example            # Environment template
 ```
 
-## Rate Limiting
+## Testing
 
-The service implements rate limiting at multiple levels:
+### Running the Telemetry Simulator
 
-- **Authentication**: 5 requests per 5 minutes
-- **General**: 100 requests per hour
-- **Chat**: 50 requests per hour per user
-- **Telemetry**: 1000 requests per hour per user
+The project includes a telemetry data simulator for testing:
 
-## Security Features
+```bash
+# Run simulator as part of docker-compose
+docker-compose up -d simulator
 
-- JWT token-based authentication
-- Password hashing with bcrypt
-- Token revocation and blacklisting
-- Role-based access control
-- Rate limiting
-- CORS protection
-- Input validation
+# Or run manually
+poetry run python scripts/simulate-telemetry.py
+```
 
-## Monitoring and Health Checks
+### API Testing
 
-The service provides comprehensive health checks:
+Use the interactive API documentation at http://localhost:8000/docs to test endpoints.
 
-- Database connectivity
-- Redis connectivity
-- OpenAI API status
-- Service-specific metrics
+## 🛠️ Tech Stack
+
+- **Backend**: FastAPI, Python 3.11+
+- **Database**: PostgreSQL 15
+- **Cache**: Redis 7
+- **ORM**: SQLAlchemy with Alembic migrations
+- **Authentication**: JWT tokens
+- **AI**: OpenAI GPT integration
+- **Containerization**: Docker & Docker Compose
+- **Documentation**: OpenAPI/Swagger
+- **Validation**: Pydantic
+- **Server**: Uvicorn ASGI
